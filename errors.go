@@ -1,4 +1,4 @@
-package canlib
+package gocanlib
 
 // #cgo LDFLAGS: -lcanlib32
 // #include <canlib.h>
