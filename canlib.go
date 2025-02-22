@@ -9,15 +9,16 @@ import (
 )
 
 type CANMessage struct {
-	Identifier uint32
+	Identifier int32
 	Data       []byte
-	Dlc        uint32
-	Flags      uint
-	Time       uint
+	DLC        uint32
+	Flags      uint32
+	Timestamp  uint32
 }
 
-func InitializeLibrary() {
+func InitializeLibrary() error {
 	C.canInitializeLibrary()
+	return nil
 }
 
 func UnloadLibrary() error {
@@ -84,7 +85,7 @@ const (
 
 // This function can be used to retrieve certain pieces of information about a channel.
 func GetChannelDataString(channel int, item ChannelDataItem) (string, error) {
-	msg := make([]byte, 256, 256)
+	msg := make([]byte, 256)
 	err := NewError(C.canGetChannelData(C.int(channel), C.int(item), unsafe.Pointer(&msg[0]), C.size_t(len(msg))))
 	if err != nil {
 		return "", err
@@ -93,7 +94,7 @@ func GetChannelDataString(channel int, item ChannelDataItem) (string, error) {
 }
 
 func GetChannelByte(channel int, item ChannelDataItem) ([]byte, error) {
-	msg := make([]byte, 256, 256)
+	msg := make([]byte, 256)
 	status := C.canGetChannelData(C.int(channel), C.int(item), unsafe.Pointer(&msg[0]), C.size_t(len(msg)))
 	if err := NewError(status); err != nil {
 		return nil, err
@@ -191,7 +192,7 @@ func (hnd Handle) ObjBufAllocate(typ int) (int, error) {
 	return int(idx), nil
 }
 
-type MsgFlag uint
+type MsgFlag uint32
 
 const (
 	MSG_MASK        MsgFlag = C.canMSG_MASK
@@ -319,24 +320,22 @@ func (hnd Handle) ReadErrorCounters() (uint, uint, uint, error) {
 }
 
 // Reads a message from the receive buffer. If no message is available, the function waits until a message arrives or a timeout occurs.
-func (hnd Handle) ReadWait(timeout int) (*CANMessage, error) {
-	identifier := C.long(0)
-	var data [16]byte
-	dlc := C.uint(0)
-	flags := C.uint(0)
-	time := C.ulong(0)
-	timeOut := C.ulong(timeout)
-	status := C.canReadWait(C.int(hnd), &identifier, unsafe.Pointer(&data), &dlc, &flags, &time, timeOut)
+func (hnd Handle) ReadWait(timeout uint32) (*CANMessage, error) {
+	msg := new(CANMessage)
+	msg.Data = make([]byte, 64)
+	status := C.canReadWait(
+		C.int(hnd),
+		(*C.long)(&msg.Identifier),   // Cast uint32 pointer to *C.long
+		unsafe.Pointer(&msg.Data[0]), // This one is correct as is
+		(*C.uint)(&msg.DLC),          // Cast uint32 pointer to *C.uint
+		(*C.uint)(&msg.Flags),        // Cast uint32 pointer to *C.uint
+		(*C.ulong)(&msg.Timestamp),   // Cast uint32 pointer to *C.ulong
+		C.ulong(timeout),             // Cast timeout to C.ulong
+	)
 	if err := NewError(status); err != nil {
 		return nil, err
 	}
-	return &CANMessage{
-		Identifier: uint32(identifier),
-		Data:       data[:dlc],
-		Dlc:        uint32(dlc),
-		Flags:      uint(flags),
-		Time:       uint(time),
-	}, nil
+	return msg, nil
 }
 
 // This function sends a CAN message. The call returns immediately after queuing the message to the driver so the message has not necessarily been transmitted.
@@ -350,7 +349,7 @@ func (hnd Handle) WriteSync(timeoutMS int) error {
 }
 
 // This function sends a CAN message and returns when the message has been successfully transmitted, or the timeout expires.
-func (hnd Handle) WriteWait(identifier uint32, data []byte, flags MsgFlag, timeoutMS int) error {
+func (hnd Handle) WriteWait(identifier uint32, data []byte, flags MsgFlag, timeoutMS uint32) error {
 	return NewError(C.canWriteWait(C.int(hnd), C.long(identifier), unsafe.Pointer(&data[0]), C.uint(len(data)), C.uint(flags), C.ulong(timeoutMS)))
 
 }
